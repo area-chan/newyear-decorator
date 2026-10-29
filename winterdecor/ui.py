@@ -3,41 +3,51 @@
 from __future__ import annotations
 
 import math
+import os
 import random
 from datetime import datetime
+from pathlib import Path
 
 from PyQt5.QtCore import (
     QEasingCurve,
     QPointF,
+    QRect,
     QRectF,
     QSize,
     Qt,
     QTimer,
+    QUrl,
     QVariantAnimation,
 )
 from PyQt5.QtGui import (
     QBrush,
     QColor,
+    QDesktopServices,
     QFont,
     QLinearGradient,
     QPainter,
     QPainterPath,
     QPen,
+    QPixmap,
     QRadialGradient,
 )
 from PyQt5.QtWidgets import (
     QAbstractButton,
+    QButtonGroup,
+    QFileDialog,
+    QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
     QPushButton,
     QSizePolicy,
+    QStackedWidget,
     QVBoxLayout,
     QWidget,
 )
 
 from . import plasma
-from .theme import BG_BOTTOM, BG_TOP, GOLD, ICE, MUTED, OK, TEXT
+from .theme import BG_BOTTOM, BG_TOP, GOLD, MUTED, TEXT
 
 CARDS = [
     ("snow", "Снегопад", "Мягкий снег поверх обоев", "snow"),
@@ -48,52 +58,70 @@ CARDS = [
     ("wish", "Пожелание дня", "Тёплая фраза на утро", "wish"),
 ]
 
-PRESETS = [
-    (
-        "Полный Новый год",
-        {
-            "snow": True,
-            "garland": True,
-            "tree": True,
-            "clock": True,
-            "weather": True,
-            "wish": True,
-        },
-    ),
-    (
-        "Уютный минимум",
-        {
-            "snow": True,
-            "garland": True,
-            "tree": True,
-            "clock": False,
-            "weather": False,
-            "wish": False,
-        },
-    ),
-    (
-        "Только снег",
-        {
-            "snow": True,
-            "garland": False,
-            "tree": False,
-            "clock": False,
-            "weather": False,
-            "wish": False,
-        },
-    ),
-    (
-        "Выключить всё",
-        {
-            "snow": False,
-            "garland": False,
-            "tree": False,
-            "clock": False,
-            "weather": False,
-            "wish": False,
-        },
-    ),
+WALLPAPERS = [
+    ("polar-night", "Полярная ночь"),
+    ("aurora", "Северное сияние"),
+    ("sunset", "Зимний закат"),
+    ("minimal", "Тихий вечер"),
+    ("bokeh", "Огни в снегу"),
+    ("moon-forest", "Лунный лес"),
+    ("cabin", "Домик в лесу"),
+    ("frost", "Морозные узоры"),
 ]
+
+DENSITIES = [
+    (60, "Лёгкий"),
+    (120, "Обычный"),
+    (180, "Сильный"),
+]
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+AUTOSTART_FILE = Path.home() / ".config" / "autostart" / "newyear-decorator.desktop"
+
+
+def wallpaper_dir() -> Path:
+    local = BASE_DIR / "assets" / "wallpapers"
+    if local.is_dir():
+        return local
+    return Path.home() / ".local" / "share" / "newyear-decorator" / "wallpapers"
+
+
+def autostart_enabled() -> bool:
+    return AUTOSTART_FILE.exists()
+
+
+def launcher_command() -> str:
+    launcher = Path.home() / ".local" / "bin" / "newyear-decorator"
+    if launcher.exists():
+        return str(launcher)
+    return 'python3 "%s"' % (BASE_DIR / "main.py")
+
+
+def set_autostart(enabled: bool) -> None:
+    if enabled:
+        AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
+        AUTOSTART_FILE.write_text(
+            "[Desktop Entry]\n"
+            "Type=Application\n"
+            "Name=Новогодний оформитель\n"
+            "Comment=Меню зимних украшений рабочего стола\n"
+            "Exec=%s\n"
+            "Icon=newyear-decorator\n"
+            "Terminal=false\n"
+            "OnlyShowIn=KDE;\n"
+            "X-GNOME-Autostart-enabled=true\n" % launcher_command(),
+            encoding="utf-8",
+        )
+    elif AUTOSTART_FILE.exists():
+        AUTOSTART_FILE.unlink()
+
+
+def _screens_text(count: int) -> str:
+    if count == 1:
+        return "1 экран"
+    if 2 <= count <= 4:
+        return "%d экрана" % count
+    return "%d экранов" % count
 
 
 def _draw_icon(painter: QPainter, rect: QRectF, kind: str, color: QColor) -> None:
@@ -218,6 +246,15 @@ def _draw_icon(painter: QPainter, rect: QRectF, kind: str, color: QColor) -> Non
             painter.drawEllipse(
                 QPointF(x + w * (0.34 + 0.16 * i), y + h * 0.43), 1.6, 1.6
             )
+
+    elif kind == "start":
+        radius = side * 0.36
+        painter.drawArc(
+            QRectF(cx - radius, cy - radius, radius * 2, radius * 2),
+            55 * 16,
+            290 * 16,
+        )
+        painter.drawLine(QPointF(cx, cy - radius * 1.25), QPointF(cx, cy - radius * 0.15))
 
     painter.restore()
 
@@ -376,6 +413,109 @@ class DecorCard(QAbstractButton):
         painter.setPen(Qt.NoPen)
         painter.setBrush(QColor("#fff7ea") if self.isChecked() else QColor("#dfe8f5"))
         painter.drawEllipse(QRectF(knob_x, track.top() + 3, 18, 18))
+
+
+class WallpaperTile(QAbstractButton):
+    """Плитка галереи: миниатюра, название и золотая рамка у выбранной."""
+
+    def __init__(self, path: Path, title: str, parent=None):
+        super().__init__(parent)
+        self.path = path
+        self.title = title
+        self._hover = False
+
+        thumb = path.parent / "thumbs" / (path.stem + ".jpg")
+        source = thumb if thumb.exists() else path
+        self._pix = QPixmap(str(source))
+
+        self.setCheckable(True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(146)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setAttribute(Qt.WA_Hover, True)
+
+    def enterEvent(self, event) -> None:
+        self._hover = True
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:
+        self._hover = False
+        self.update()
+        super().leaveEvent(event)
+
+    def sizeHint(self) -> QSize:
+        return QSize(200, 146)
+
+    def paintEvent(self, event) -> None:
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+        painter.setRenderHint(QPainter.SmoothPixmapTransform, True)
+        painter.setRenderHint(QPainter.TextAntialiasing, True)
+
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        image_rect = QRectF(rect.left(), rect.top(), rect.width(), rect.height() - 26)
+        shape = QPainterPath()
+        shape.addRoundedRect(image_rect, 13, 13)
+
+        painter.save()
+        painter.setClipPath(shape)
+        painter.fillRect(image_rect, QColor("#162033"))
+        if not self._pix.isNull():
+            scaled = self._pix.scaled(
+                int(image_rect.width()),
+                int(image_rect.height()),
+                Qt.KeepAspectRatioByExpanding,
+                Qt.SmoothTransformation,
+            )
+            source = QRect(
+                max(0, (scaled.width() - int(image_rect.width())) // 2),
+                max(0, (scaled.height() - int(image_rect.height())) // 2),
+                int(image_rect.width()),
+                int(image_rect.height()),
+            )
+            painter.drawPixmap(image_rect.toRect(), scaled, source)
+        painter.restore()
+
+        if self.isChecked():
+            border, width = QColor(255, 210, 122, 235), 2.0
+        elif self._hover:
+            border, width = QColor(255, 255, 255, 110), 1.0
+        else:
+            border, width = QColor(255, 255, 255, 34), 1.0
+        painter.setPen(QPen(border, width))
+        painter.setBrush(Qt.NoBrush)
+        painter.drawPath(shape)
+
+        if self.isChecked():
+            cx, cy = image_rect.right() - 16, image_rect.top() + 16
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QColor(255, 210, 122, 240))
+            painter.drawEllipse(QPointF(cx, cy), 9, 9)
+            check = QPen(QColor("#2b1e06"), 1.8)
+            check.setCapStyle(Qt.RoundCap)
+            check.setJoinStyle(Qt.RoundJoin)
+            painter.setPen(check)
+            painter.drawLine(QPointF(cx - 4, cy), QPointF(cx - 1, cy + 3))
+            painter.drawLine(QPointF(cx - 1, cy + 3), QPointF(cx + 4, cy - 3))
+
+        label_font = QFont(self.font())
+        label_font.setPixelSize(12)
+        label_font.setWeight(QFont.DemiBold if self.isChecked() else QFont.Normal)
+        painter.setFont(label_font)
+        if self.isChecked():
+            color = GOLD
+        elif self._hover:
+            color = QColor("#e8f0fb")
+        else:
+            color = QColor("#c3d2e6")
+        painter.setPen(color)
+        painter.drawText(
+            QRectF(rect.left(), image_rect.bottom() + 4, rect.width(), 22),
+            int(Qt.AlignHCenter | Qt.AlignVCenter),
+            self.title,
+        )
 
 
 class IconBadge(QWidget):
@@ -547,8 +687,13 @@ class DecoratorWindow(SnowWindow):
     def __init__(self):
         super().__init__()
         self._state = {key: True for key, _, _, _ in CARDS}
+        self._density = plasma.DEFAULT_DENSITY
+        self._wallpaper = ""
         self._cards: dict[str, DecorCard] = {}
+        self._tiles: dict[str, WallpaperTile] = {}
+        self._density_buttons: dict[int, QPushButton] = {}
         self._build_ui()
+        self._autostart_card.set_on(autostart_enabled(), animate=False)
         QTimer.singleShot(120, self._load_state)
 
     def showEvent(self, event) -> None:
@@ -557,11 +702,36 @@ class DecoratorWindow(SnowWindow):
 
     # ---------- интерфейс ----------
 
+    def _section(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("section")
+        return label
+
+    def _hint(self, text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("hint")
+        label.setWordWrap(True)
+        return label
+
     def _build_ui(self) -> None:
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(46, 40, 46, 38)
-        layout.setSpacing(16)
+        layout.setContentsMargins(40, 32, 40, 26)
+        layout.setSpacing(13)
 
+        layout.addLayout(self._build_header())
+        layout.addLayout(self._build_tabs())
+
+        self.stack = QStackedWidget()
+        self.stack.setFrameShape(QFrame.NoFrame)
+        self.stack.setStyleSheet("QStackedWidget { background: transparent; }")
+        self.stack.addWidget(self._build_decorations_page())
+        self.stack.addWidget(self._build_wallpapers_page())
+        self.stack.addWidget(self._build_settings_page())
+        layout.addWidget(self.stack, 1)
+
+        layout.addLayout(self._build_footer())
+
+    def _build_header(self) -> QHBoxLayout:
         header = QHBoxLayout()
         header.setSpacing(14)
 
@@ -571,7 +741,7 @@ class DecoratorWindow(SnowWindow):
         titles.setSpacing(3)
         title = QLabel("Новогодний оформитель")
         title.setObjectName("title")
-        subtitle = QLabel("Выбери украшения — рабочий стол меняется сразу, без перезапуска")
+        subtitle = QLabel("Зимние украшения рабочего стола — без перезапуска оболочки")
         subtitle.setObjectName("subtitle")
         titles.addWidget(title)
         titles.addWidget(subtitle)
@@ -581,38 +751,186 @@ class DecoratorWindow(SnowWindow):
         self.chip = QLabel("Проверяю Plasma…")
         self.chip.setObjectName("chip")
         header.addWidget(self.chip, 0, Qt.AlignVCenter)
-        layout.addLayout(header)
+        return header
+
+    def _build_tabs(self) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(6)
+
+        self._tab_group = QButtonGroup(self)
+        self._tab_group.setExclusive(True)
+        self._tab_buttons: list[QPushButton] = []
+
+        for index, name in enumerate(("Украшения", "Обои", "Настройки")):
+            button = QPushButton(name)
+            button.setObjectName("tab")
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.clicked.connect(
+                lambda _checked=False, i=index: self.stack.setCurrentIndex(i)
+            )
+            self._tab_group.addButton(button)
+            self._tab_buttons.append(button)
+            row.addWidget(button)
+
+        self._tab_buttons[0].setChecked(True)
+        row.addStretch(1)
+        return row
+
+    def _build_decorations_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(0)
 
         grid = QGridLayout()
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(14)
         for index, (key, card_title, card_subtitle, kind) in enumerate(CARDS):
             card = DecorCard(key, card_title, card_subtitle, kind)
-            card.toggled.connect(
-                lambda checked, k=key: self._on_toggle(k, checked)
-            )
+            card.toggled.connect(lambda checked, k=key: self._on_toggle(k, checked))
             self._cards[key] = card
             grid.addWidget(card, index // 2, index % 2)
         layout.addLayout(grid)
-
-        presets_label = QLabel("ПРЕСЕТЫ")
-        presets_label.setObjectName("section")
-        layout.addWidget(presets_label)
-
-        presets_row = QHBoxLayout()
-        presets_row.setSpacing(10)
-        for name, preset in PRESETS:
-            button = QPushButton(name)
-            button.setObjectName("preset")
-            button.setCursor(Qt.PointingHandCursor)
-            button.clicked.connect(
-                lambda _checked=False, p=preset: self._apply_preset(p)
-            )
-            presets_row.addWidget(button)
-        layout.addLayout(presets_row)
-
         layout.addStretch(1)
+        return page
 
+    def _build_wallpapers_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(11)
+
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        top.addWidget(self._section("ЗИМНИЕ ОБОИ 4K"))
+        top.addStretch(1)
+        self._wall_label = QLabel("Сейчас: —")
+        self._wall_label.setObjectName("wallname")
+        top.addWidget(self._wall_label)
+        layout.addLayout(top)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(10)
+
+        self._tile_group = QButtonGroup(self)
+        self._tile_group.setExclusive(True)
+
+        folder = wallpaper_dir()
+        self._wallpaper_paths: list[Path] = []
+        for index, (slug, title) in enumerate(WALLPAPERS):
+            path = folder / (slug + ".jpg")
+            if not path.exists():
+                continue
+            tile = WallpaperTile(path, title)
+            tile.clicked.connect(lambda _checked=False, t=tile: self._on_wallpaper(t))
+            self._tile_group.addButton(tile)
+            self._tiles[slug] = tile
+            self._wallpaper_paths.append(path)
+            grid.addWidget(tile, index // 4, index % 4)
+
+        if self._wallpaper_paths:
+            layout.addLayout(grid)
+        else:
+            layout.addWidget(self._hint("Папка с обоями не найдена — переустанови программу."))
+
+        actions = QHBoxLayout()
+        actions.setSpacing(10)
+
+        own = QPushButton("Своя картинка…")
+        own.setObjectName("action")
+        own.setCursor(Qt.PointingHandCursor)
+        own.clicked.connect(self._pick_wallpaper)
+        actions.addWidget(own)
+
+        shuffle = QPushButton("Случайные обои")
+        shuffle.setObjectName("action")
+        shuffle.setCursor(Qt.PointingHandCursor)
+        shuffle.clicked.connect(self._random_wallpaper)
+        actions.addWidget(shuffle)
+
+        actions.addStretch(1)
+        actions.addWidget(
+            self._hint("Обои ставятся на все мониторы; любимую картинку можно вернуть в любой момент.")
+        )
+        layout.addLayout(actions)
+        layout.addStretch(1)
+        return page
+
+    def _build_settings_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(0, 4, 0, 0)
+        layout.setSpacing(10)
+
+        layout.addWidget(self._section("СНЕГОПАД"))
+        layout.addWidget(
+            self._hint("Сколько снежинок падает поверх обоев. Меняется сразу, перезапуск не нужен.")
+        )
+
+        choice_row = QHBoxLayout()
+        choice_row.setSpacing(8)
+        self._density_group = QButtonGroup(self)
+        self._density_group.setExclusive(True)
+        for value, name in DENSITIES:
+            button = QPushButton(name)
+            button.setObjectName("choice")
+            button.setCheckable(True)
+            button.setCursor(Qt.PointingHandCursor)
+            button.setFocusPolicy(Qt.NoFocus)
+            button.clicked.connect(
+                lambda _checked=False, v=value, n=name: self._on_density(v, n)
+            )
+            self._density_group.addButton(button)
+            self._density_buttons[value] = button
+            choice_row.addWidget(button)
+        choice_row.addStretch(1)
+        layout.addLayout(choice_row)
+
+        layout.addSpacing(6)
+        layout.addWidget(self._section("ПРИ ВХОДЕ В СИСТЕМУ"))
+
+        self._autostart_card = DecorCard(
+            "autostart",
+            "Автозапуск",
+            "Открывать меню при входе в систему",
+            "start",
+        )
+        self._autostart_card.set_on(autostart_enabled(), animate=False)
+        self._autostart_card.toggled.connect(self._on_autostart)
+        layout.addWidget(self._autostart_card)
+
+        layout.addSpacing(4)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+
+        folder = QPushButton("Открыть папку с обоями")
+        folder.setObjectName("action")
+        folder.setCursor(Qt.PointingHandCursor)
+        folder.clicked.connect(self._open_wallpaper_folder)
+        row.addWidget(folder)
+
+        refresh = QPushButton("Обновить состояние")
+        refresh.setObjectName("action")
+        refresh.setCursor(Qt.PointingHandCursor)
+        refresh.clicked.connect(self._load_state)
+        row.addWidget(refresh)
+
+        row.addStretch(1)
+        layout.addLayout(row)
+
+        layout.addWidget(
+            self._hint(
+                "Украшения и обои применяются на все подключённые мониторы. "
+                "Окно таскается за шапку, Esc закрывает."
+            )
+        )
+        layout.addStretch(1)
+        return page
+
+    def _build_footer(self) -> QHBoxLayout:
         footer = QHBoxLayout()
         footer.setSpacing(12)
         self.status = QLabel("Готово")
@@ -623,9 +941,10 @@ class DecoratorWindow(SnowWindow):
         close_button = QPushButton("Закрыть")
         close_button.setObjectName("close")
         close_button.setCursor(Qt.PointingHandCursor)
+        close_button.setFocusPolicy(Qt.NoFocus)
         close_button.clicked.connect(self.close)
         footer.addWidget(close_button)
-        layout.addLayout(footer)
+        return footer
 
     # ---------- логика ----------
 
@@ -640,24 +959,61 @@ class DecoratorWindow(SnowWindow):
         color = "#ff9e9e" if error else "#8fa2ba"
         self.status.setStyleSheet(f"color: {color};")
 
+    def _current_tile_key(self) -> str:
+        if not self._wallpaper:
+            return ""
+        target = os.path.realpath(self._wallpaper)
+        for slug, tile in self._tiles.items():
+            if os.path.realpath(str(tile.path)) == target:
+                return slug
+        return ""
+
+    def _select_wallpaper(self, path: str) -> None:
+        self._wallpaper = path
+        key = self._current_tile_key()
+
+        self._tile_group.setExclusive(False)
+        for slug, tile in self._tiles.items():
+            tile.setChecked(slug == key)
+            tile.update()
+        self._tile_group.setExclusive(True)
+
+        name = Path(path).name if path else "—"
+        if len(name) > 42:
+            name = name[:39] + "…"
+        self._wall_label.setText("Сейчас: " + name)
+
+    def _select_density(self, density: int) -> None:
+        self._density = density
+        nearest = min(DENSITIES, key=lambda item: abs(item[0] - density))[0]
+        for value, button in self._density_buttons.items():
+            button.setChecked(value == nearest)
+
     def _load_state(self) -> None:
         try:
-            plasma.check_ready()
-            state = plasma.read_state()
+            info = plasma.read_all()
         except plasma.PlasmaError as error:
             self._set_chip("Нет связи с Plasma", "err")
             self._set_status(f"Plasma недоступна: {error}", error=True)
             return
 
-        self._state = state
+        self._state = info["state"]
         for key, card in self._cards.items():
-            card.set_on(state.get(key, True), animate=False)
-        self._set_chip("Plasma на связи", "ok")
+            card.set_on(self._state.get(key, True), animate=False)
+
+        self._select_density(info["density"])
+        self._select_wallpaper(info["wallpaper"])
+        self._autostart_card.set_on(autostart_enabled(), animate=False)
+
+        chip = "Plasma на связи"
+        if info["screens"] > 1:
+            chip += " · " + _screens_text(info["screens"])
+        self._set_chip(chip, "ok")
         self._set_status("Текущий вид загружен · " + datetime.now().strftime("%H:%M"))
 
     def _apply(self) -> bool:
         try:
-            plasma.apply_state(self._state)
+            plasma.apply_state(self._state, self._density)
         except plasma.PlasmaError as error:
             self._set_status(f"Не применилось: {error}", error=True)
             return False
@@ -668,13 +1024,66 @@ class DecoratorWindow(SnowWindow):
         self._state[key] = checked
         self._apply()
 
-    def _apply_preset(self, preset: dict[str, bool]) -> None:
-        for key, value in preset.items():
-            self._state[key] = value
-            card = self._cards.get(key)
-            if card is not None:
-                card.set_on(value)
-        if self._apply():
-            self._set_status(
-                "Пресет применён · " + datetime.now().strftime("%H:%M")
-            )
+    def _on_density(self, value: int, name: str) -> None:
+        previous = self._density
+        try:
+            plasma.set_density(value)
+        except plasma.PlasmaError as error:
+            self._select_density(previous)
+            self._set_status(f"Не применилось: {error}", error=True)
+            return
+
+        self._density = value
+        self._set_status("Снег: " + name.lower())
+
+    def _apply_wallpaper(self, path: Path) -> bool:
+        try:
+            plasma.set_wallpaper(str(path))
+        except plasma.PlasmaError as error:
+            self._select_wallpaper(self._wallpaper)
+            self._set_status(f"Обои не сменились: {error}", error=True)
+            return False
+
+        self._select_wallpaper(str(path))
+        self._set_status("Обои: " + path.name)
+        return True
+
+    def _on_wallpaper(self, tile: WallpaperTile) -> None:
+        self._apply_wallpaper(tile.path)
+
+    def _pick_wallpaper(self) -> None:
+        pictures = Path.home() / "Pictures"
+        start = str(pictures if pictures.is_dir() else Path.home())
+        name, _filter = QFileDialog.getOpenFileName(
+            self,
+            "Выбери картинку для рабочего стола",
+            start,
+            "Изображения (*.jpg *.jpeg *.png *.webp *.bmp)",
+        )
+        if name:
+            self._apply_wallpaper(Path(name))
+
+    def _random_wallpaper(self) -> None:
+        if not self._wallpaper_paths:
+            return
+        current = self._current_tile_key()
+        pool = [path for path in self._wallpaper_paths if path.stem != current]
+        if not pool:
+            pool = self._wallpaper_paths
+        self._apply_wallpaper(random.choice(pool))
+
+    def _open_wallpaper_folder(self) -> None:
+        folder = wallpaper_dir()
+        if folder.is_dir():
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+        else:
+            self._set_status("Папка с обоями не найдена.", error=True)
+
+    def _on_autostart(self, checked: bool) -> None:
+        try:
+            set_autostart(checked)
+        except OSError as error:
+            self._autostart_card.set_on(not checked, animate=False)
+            self._set_status(f"Не получилось: {error}", error=True)
+            return
+        self._set_status("Автозапуск включён" if checked else "Автозапуск выключен")

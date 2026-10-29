@@ -6,6 +6,7 @@ Item {
     // настройки из «Новогоднего оформителя»
     readonly property bool snowOn: wallpaper.configuration.Snow !== false
     readonly property bool garlandOn: wallpaper.configuration.Garland !== false
+    readonly property int density: Math.max(20, Number(wallpaper.configuration.Density) || 120)
 
     // общий тик для снега и гирлянды (12 кадров в секунду)
     property real tick: 0
@@ -40,7 +41,7 @@ Item {
         visible: root.snowOn
 
         Repeater {
-            model: 120
+            model: root.density
 
             Rectangle {
                 property real speed: 0.55 + Math.random() * 1.5

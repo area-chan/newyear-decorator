@@ -61,20 +61,64 @@ QLabel#chipErr {
     color: #ff9e9e;
 }
 
-QPushButton#preset {
+QLabel#hint {
+    font-size: 11px;
+    color: #8fa2ba;
+}
+QLabel#wallname {
+    font-size: 11px;
+    color: #c8d5e6;
+}
+
+QPushButton#tab {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 15px;
+    padding: 7px 18px;
+    font-size: 12px;
+    color: #93a5bd;
+}
+QPushButton#tab:hover {
+    background: rgba(255, 255, 255, 0.05);
+    color: #dbe6f5;
+}
+QPushButton#tab:checked {
+    background: rgba(255, 210, 122, 0.13);
+    border-color: rgba(255, 210, 122, 0.38);
+    color: #ffe3ad;
+}
+
+QPushButton#action {
     background: rgba(255, 255, 255, 0.055);
     border: 1px solid rgba(255, 255, 255, 0.13);
     border-radius: 15px;
-    padding: 9px 16px;
+    padding: 8px 16px;
     color: #dbe6f5;
 }
-QPushButton#preset:hover {
+QPushButton#action:hover {
     background: rgba(255, 255, 255, 0.10);
     border-color: rgba(255, 255, 255, 0.22);
 }
-QPushButton#preset:pressed {
+QPushButton#action:pressed {
     background: rgba(255, 210, 122, 0.20);
     border-color: rgba(255, 210, 122, 0.45);
+}
+
+QPushButton#choice {
+    background: rgba(255, 255, 255, 0.055);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    border-radius: 15px;
+    padding: 7px 20px;
+    color: #c8d5e6;
+}
+QPushButton#choice:hover {
+    background: rgba(255, 255, 255, 0.10);
+    border-color: rgba(255, 255, 255, 0.22);
+}
+QPushButton#choice:checked {
+    background: rgba(255, 210, 122, 0.18);
+    border-color: rgba(255, 210, 122, 0.55);
+    color: #ffe3ad;
 }
 
 QPushButton#close {

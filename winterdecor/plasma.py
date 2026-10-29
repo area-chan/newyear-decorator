@@ -1,21 +1,23 @@
 """Связь с KDE Plasma через D-Bus (qdbus).
 
 Плазма умеет выполнять JS прямо в оболочке: evaluateScript. Этого достаточно,
-чтобы включать и выключать плазмоиды и снег с гирляндой без перезапуска
-plasmashell — изменения видны сразу.
+чтобы включать и выключать плазмоиды, менять обои и плотность снега без
+перезапуска plasmashell — изменения видны сразу.
 """
 
 from __future__ import annotations
 
-import re
+import json
 import shutil
 import subprocess
+from urllib.parse import unquote, urlparse
 
 DBUS_SERVICE = "org.kde.plasmashell"
 DBUS_PATH = "/PlasmaShell"
 DBUS_IFACE = "org.kde.PlasmaShell"
 
-WALLPAPER_PLUGIN = "org.winter.snow"
+SNOW_PLUGIN = "org.winter.snow"
+IMAGE_PLUGIN = "org.kde.image"
 
 # ключ в программе -> имя плазмоида
 WIDGETS = {
@@ -27,12 +29,23 @@ WIDGETS = {
 
 KEYS = ("snow", "garland", "tree", "clock", "weather", "wish")
 
+DEFAULT_DENSITY = 120
+
 READ_SCRIPT = """
 var out = [];
-var d = desktops()[0];
+var ds = desktops();
+var d = ds[0];
+
+d.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
+out.push("IMAGE=" + d.readConfig("Image"));
+
 d.currentConfigGroup = ["Wallpaper", "org.winter.snow", "General"];
+out.push("SNOWIMAGE=" + d.readConfig("Image"));
+out.push("DENSITY=" + d.readConfig("Density"));
 out.push("SNOW=" + d.readConfig("Snow"));
 out.push("GARLAND=" + d.readConfig("Garland"));
+out.push("SCREENS=" + ds.length);
+
 var ws = d.widgets();
 for (var i = 0; i < ws.length; ++i) {
     ws[i].currentConfigGroup = ["Configuration", "General"];
@@ -43,32 +56,67 @@ print(out.join("\\n"));
 
 APPLY_TEMPLATE = """
 var on = {%(flags)s};
-var d = desktops()[0];
-
-// запоминаем путь к любимым обоям, чтобы снег рисовался поверх них
-d.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
-var img = d.readConfig("Image");
-d.currentConfigGroup = ["Wallpaper", "org.winter.snow", "General"];
-var snowImg = d.readConfig("Image");
-if (!img) img = snowImg;
-if (img) d.writeConfig("Image", img);
-
-d.writeConfig("Snow", on.snow);
-d.writeConfig("Garland", on.garland);
-
-// снег и гирлянда живут в плагине обоев, остальное — обычные виджеты
-var plugin = "org.winter.snow";
-if (!on.snow && !on.garland && img) plugin = "org.kde.image";
-if (d.wallpaperPlugin !== plugin) d.wallpaperPlugin = plugin;
-
+var density = %(density)d;
 var widgets = {%(widgets)s};
-var ws = d.widgets();
-for (var i = 0; i < ws.length; ++i) {
-    var t = ws[i].type;
-    if (widgets[t] === undefined)
-        continue;
-    ws[i].currentConfigGroup = ["Configuration", "General"];
-    ws[i].writeConfig("enabled", widgets[t]);
+var ds = desktops();
+
+for (var k = 0; k < ds.length; ++k) {
+    var d = ds[k];
+
+    // запоминаем путь к любимым обоям, чтобы снег рисовался поверх них
+    d.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
+    var img = d.readConfig("Image");
+    d.currentConfigGroup = ["Wallpaper", "org.winter.snow", "General"];
+    if (!img) img = d.readConfig("Image");
+    if (img) d.writeConfig("Image", img);
+
+    d.writeConfig("Snow", on.snow);
+    d.writeConfig("Garland", on.garland);
+    d.writeConfig("Density", density);
+
+    // снег и гирлянда живут в плагине обоев, остальное — обычные виджеты
+    if (on.snow || on.garland) {
+        if (d.wallpaperPlugin !== "org.winter.snow")
+            d.wallpaperPlugin = "org.winter.snow";
+    } else if (img) {
+        if (d.wallpaperPlugin !== "org.kde.image")
+            d.wallpaperPlugin = "org.kde.image";
+    }
+
+    var ws = d.widgets();
+    for (var i = 0; i < ws.length; ++i) {
+        var t = ws[i].type;
+        if (widgets[t] === undefined)
+            continue;
+        ws[i].currentConfigGroup = ["Configuration", "General"];
+        ws[i].writeConfig("enabled", widgets[t]);
+    }
+}
+print("OK");
+"""
+
+WALLPAPER_TEMPLATE = """
+var url = %(url)s;
+var ds = desktops();
+
+for (var k = 0; k < ds.length; ++k) {
+    var d = ds[k];
+    d.currentConfigGroup = ["Wallpaper", "org.kde.image", "General"];
+    d.writeConfig("Image", url);
+    d.writeConfig("FillMode", 2);
+    d.currentConfigGroup = ["Wallpaper", "org.winter.snow", "General"];
+    d.writeConfig("Image", url);
+}
+print("OK");
+"""
+
+DENSITY_TEMPLATE = """
+var value = %(density)d;
+var ds = desktops();
+for (var k = 0; k < ds.length; ++k) {
+    var d = ds[k];
+    d.currentConfigGroup = ["Wallpaper", "org.winter.snow", "General"];
+    d.writeConfig("Density", value);
 }
 print("OK");
 """
@@ -126,28 +174,72 @@ def _as_bool(raw: str | None) -> bool:
     return True
 
 
-def read_state() -> dict[str, bool]:
-    """Текущее состояние украшений."""
+def to_url(path: str) -> str:
+    """Путь к файлу в виде file://..., как его хранит Plasma."""
+    if path.startswith("file://"):
+        return path
+    from pathlib import Path
+
+    return Path(path).expanduser().resolve().as_uri()
+
+
+def to_path(value: str | None) -> str:
+    """Обратное преобразование: file://... -> обычный путь."""
+    if not value:
+        return ""
+    value = value.strip()
+    if value.startswith("file://"):
+        return unquote(urlparse(value).path)
+    return value
+
+
+def read_all() -> dict:
+    """Состояние украшений, текущие обои и плотность снега одним запросом."""
     text = _call(READ_SCRIPT)
+
+    values: dict[str, str] = {}
+    widgets: list[tuple[str, str]] = []
+    for line in text.splitlines():
+        if line.startswith("WIDGET:"):
+            parts = line.split(":", 2)
+            if len(parts) == 3:
+                widgets.append((parts[1], parts[2]))
+            continue
+        if "=" in line:
+            key, value = line.split("=", 1)
+            values[key] = value
+
     state = {key: True for key in KEYS}
-
-    match = re.search(r"SNOW=(\S*)", text)
-    if match:
-        state["snow"] = _as_bool(match.group(1))
-
-    match = re.search(r"GARLAND=(\S*)", text)
-    if match:
-        state["garland"] = _as_bool(match.group(1))
-
-    for plugin, raw in re.findall(r"WIDGET:([\w.]+):(\S*)", text):
+    state["snow"] = _as_bool(values.get("SNOW"))
+    state["garland"] = _as_bool(values.get("GARLAND"))
+    for plugin, raw in widgets:
         for key, name in WIDGETS.items():
             if name == plugin:
                 state[key] = _as_bool(raw)
 
-    return state
+    try:
+        density = int(values.get("DENSITY", ""))
+    except ValueError:
+        density = DEFAULT_DENSITY
+    if density < 20:
+        density = DEFAULT_DENSITY
+
+    try:
+        screens = max(1, int(values.get("SCREENS", "1")))
+    except ValueError:
+        screens = 1
+
+    wallpaper = to_path(values.get("IMAGE")) or to_path(values.get("SNOWIMAGE"))
+
+    return {
+        "state": state,
+        "wallpaper": wallpaper,
+        "density": density,
+        "screens": screens,
+    }
 
 
-def apply_state(state: dict[str, bool]) -> None:
+def apply_state(state: dict[str, bool], density: int | None = None) -> None:
     """Записать состояние в Plasma — применится сразу, без перезапуска."""
     flags = ", ".join(
         "%s: %s" % (key, "true" if state.get(key, False) else "false") for key in KEYS
@@ -156,11 +248,31 @@ def apply_state(state: dict[str, bool]) -> None:
         '"%s": %s' % (plugin, "true" if state.get(key, False) else "false")
         for key, plugin in WIDGETS.items()
     )
-    script = APPLY_TEMPLATE % {"flags": flags, "widgets": widgets}
+    script = APPLY_TEMPLATE % {
+        "flags": flags,
+        "density": DEFAULT_DENSITY if density is None else int(density),
+        "widgets": widgets,
+    }
 
     out = _call(script)
     if "OK" not in out:
         raise PlasmaError("Plasma не подтвердила изменение настроек.")
+
+
+def set_wallpaper(path: str) -> None:
+    """Поставить картинку на все мониторы, не трогая украшения."""
+    script = WALLPAPER_TEMPLATE % {"url": json.dumps(to_url(path))}
+    out = _call(script)
+    if "OK" not in out:
+        raise PlasmaError("Plasma не подтвердила смену обоев.")
+
+
+def set_density(count: int) -> None:
+    """Сколько снежинок рисовать (на всех мониторах)."""
+    script = DENSITY_TEMPLATE % {"density": max(20, int(count))}
+    out = _call(script)
+    if "OK" not in out:
+        raise PlasmaError("Plasma не подтвердила плотность снега.")
 
 
 def check_ready() -> None:

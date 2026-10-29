@@ -18,5 +18,9 @@
       <label>Garland</label>
       <default>true</default>
     </entry>
+    <entry name="Density" type="Int">
+      <label>Snowflakes on screen</label>
+      <default>120</default>
+    </entry>
   </group>
 </kcfg>

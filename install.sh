@@ -8,6 +8,7 @@ PLASMA="$DATA/plasma"
 APPS="$DATA/applications"
 ICONS="$DATA/icons/hicolor/scalable/apps"
 BIN="$HOME/.local/bin"
+APP="$DATA/newyear-decorator"
 
 say() { printf '\033[1;36m==>\033[0m %s\n' "$1"; }
 
@@ -28,13 +29,19 @@ for package in "$HERE"/wallpapers/*; do
     cp -R "$package" "$PLASMA/wallpapers/"
 done
 
-say "Ставлю программу и иконку"
-mkdir -p "$APPS" "$ICONS" "$BIN"
-cp "$HERE/assets/newyear-decorator.svg" "$ICONS/newyear-decorator.svg"
+say "Ставлю программу, обои и иконку"
+mkdir -p "$APPS" "$ICONS" "$BIN" "$APP/assets"
+rm -rf "$APP/winterdecor" "$APP/assets/wallpapers" "$APP/assets/thumbs"
+cp "$HERE/main.py" "$APP/"
+cp -R "$HERE/winterdecor" "$APP/"
+rm -rf "$APP/winterdecor/__pycache__"
+cp "$HERE/assets/newyear-decorator.svg" "$APP/assets/"
+cp -R "$HERE/assets/wallpapers" "$APP/assets/"
+cp "$APP/assets/newyear-decorator.svg" "$ICONS/newyear-decorator.svg"
 
 cat > "$BIN/newyear-decorator" <<LAUNCHER
 #!/usr/bin/env bash
-exec python3 "$HERE/main.py" "\$@"
+exec python3 "$APP/main.py" "\$@"
 LAUNCHER
 chmod +x "$BIN/newyear-decorator"
 
@@ -58,6 +65,7 @@ cat <<'DONE'
    Расставь их как нравится и нажми «Закрепить виджеты».
 
 3. Запускай «Новогодний оформитель» из меню приложений.
-   Снег и гирлянда включаются сами — программа подхватит твои обои.
+   Внутри — шесть украшений, восемь зимних обоев 4K, плотность снега
+   и автозапуск. Всё применяется сразу, без перезапуска.
 
 DONE
