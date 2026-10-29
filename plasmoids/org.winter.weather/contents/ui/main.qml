@@ -231,7 +231,7 @@ Item {
             fb.send();
         };
         xhr.open("GET", "https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=58.52&lon=31.27");
-        xhr.setRequestHeader("User-Agent", "winterdesktop/1.0 (mops@localhost)");
+        xhr.setRequestHeader("User-Agent", "newyear-decorator/1.0");
         xhr.send();
     }
 
