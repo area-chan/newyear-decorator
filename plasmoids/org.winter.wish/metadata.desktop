@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Пожелание дня
+Comment=Маленькая зимняя открытка
+Type=Service
+Icon=weather-snow
+ServiceTypes=Plasma/Applet
+X-KDE-PluginInfo-Name=org.winter.wish
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL
+X-KDE-PluginInfo-EnabledByDefault=true
+X-Plasma-API=declarativeappletscript
+X-Plasma-MainScript=ui/main.qml
+X-Plasma-DefaultSize=224,76

@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Новогодние часы
+Comment=Часы с секундами и датой
+Type=Service
+Icon=preferences-system-time
+ServiceTypes=Plasma/Applet
+X-KDE-PluginInfo-Name=org.winter.clock
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL
+X-KDE-PluginInfo-EnabledByDefault=true
+X-Plasma-API=declarativeappletscript
+X-Plasma-MainScript=ui/main.qml
+X-Plasma-DefaultSize=300,150

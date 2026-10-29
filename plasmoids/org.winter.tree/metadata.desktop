@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Ёлка
+Comment=Наряди ёлку шариками
+Type=Service
+Icon=christmas-tree
+ServiceTypes=Plasma/Applet
+X-KDE-PluginInfo-Name=org.winter.tree
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL
+X-KDE-PluginInfo-EnabledByDefault=true
+X-Plasma-API=declarativeappletscript
+X-Plasma-MainScript=ui/main.qml
+X-Plasma-DefaultSize=252,318

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Новогодний оформитель
+Name[en]=New Year Decorator
+Comment=Включай и выключай новогодние украшения рабочего стола KDE Plasma
+Comment[en]=Toggle New Year decorations on your KDE Plasma desktop
+Exec=newyear-decorator
+Icon=newyear-decorator
+Terminal=false
+Categories=Utility;Qt;KDE;
+Keywords=новый год;новогодний;украшения;снег;гирлянда;ёлка;winter;christmas;
+StartupWMClass=newyear-decorator

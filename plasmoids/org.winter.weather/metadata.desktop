@@ -1,0 +1,17 @@
+[Desktop Entry]
+Name=Погода
+Name[ru]=Погода
+Comment=Температура и снег в панели
+Type=Service
+Icon=weather-snow
+Categories=Plasma
+ServiceTypes=Plasma/Applet
+X-KDE-PluginInfo-Author=mops
+X-KDE-PluginInfo-Email=mops@localhost
+X-KDE-PluginInfo-Name=org.winter.weather
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-License=GPL
+X-KDE-PluginInfo-EnabledByDefault=true
+X-Plasma-API=declarativeappletscript
+X-Plasma-MainScript=ui/main.qml
+X-Plasma-DefaultSize=80,22

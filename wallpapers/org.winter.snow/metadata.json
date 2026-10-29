@@ -1,0 +1,14 @@
+{
+    "KPlugin": {
+        "Id": "org.winter.snow",
+        "Name": "Зимний снегопад",
+        "Description": "Обои с падающим снегом",
+        "Icon": "weather-snow",
+        "License": "GPLv2+",
+        "Version": "1.0",
+        "ServiceTypes": [
+            "Plasma/Wallpaper"
+        ]
+    },
+    "X-KDE-ParentApp": "org.kde.plasmashell"
+}
